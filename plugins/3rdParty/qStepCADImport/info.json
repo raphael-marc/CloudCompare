@@ -1,0 +1,5 @@
+{
+	"type" : "I/O",
+	"name" : "Step file read",
+	"description": "Allows reading (CAD format)."
+}
