@@ -31,7 +31,5 @@ if (PLUGIN_STANDARD_QFACETS)
 	target_link_libraries( ${PROJECT_NAME} QCC_IO_LIB )
 	
 	#add shapelib support
-	target_link_libraries( ${PROJECT_NAME} SHAPELIB )
-	include_directories( ${SHAPELIB_SOURCE_DIR} )
-	target_compile_definitions( ${PROJECT_NAME} PRIVATE CC_SHP_SUPPORT )
+	target_link_libraries( ${PROJECT_NAME} shapelib )
 endif()
