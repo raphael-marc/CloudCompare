@@ -67,6 +67,7 @@
 #include "TopTools_ListOfShape.hxx"
 #include <NCollection_List.hxx>
 
+#include "BRepMesh.hxx"
 #include "BRepMesh_FastDiscret.hxx"
 #include "BRepMesh_IncrementalMesh.hxx"
 
@@ -225,255 +226,154 @@ if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 	{
 	bool isFailsonly = false;
 	aReader.PrintCheckLoad(isFailsonly, IFSelect_PrintCount::IFSelect_ItemsByEntity);
-
-	int aNbRoot = aReader.NbRootsForTransfer();
 	aReader.PrintCheckTransfer(isFailsonly, IFSelect_PrintCount::IFSelect_ItemsByEntity);
 
-	Standard_Integer nbr = aReader.NbRootsForTransfer();
+	//int aNbRoot = aReader.NbRootsForTransfer();
+	//aReader.PrintCheckTransfer(isFailsonly, IFSelect_PrintCount::IFSelect_ItemsByEntity);
+	//Standard_Integer nbr = aReader.NbRootsForTransfer();
 	// aReader.PrintCheckTransfer (failsonly, IFSelect_ItemsByEntity);
-	for (Standard_Integer n = 1; n<= nbr; n++) {
-	    aReader.TransferRoot(n);
-		}
+	//for (Standard_Integer n = 1; n<= nbr; n++) {
+	//    aReader.TransferRoot(n);
+	//	}
 	// // Collecting resulting entities
-	TopoDS_Shape aShape;
+	Standard_Integer nbr = aReader.NbRootsForTransfer();
+    //aReader.PrintCheckTransfer (failsonly, IFSelect_ItemsByEntity);
+    for (Standard_Integer n = 1; n<= nbr; n++) {
+        cout << "STEP: Transferring Root " << n << endl;
+		aReader.TransferRoot(n);
+    }
+  	aReader.TransferRoots();
 	Standard_Integer nbs = aReader.NbShapes();
 	ccLog::Print("Number fo shapes = "+QString::number(nbs));
+	TopoDS_Shape aShape;
 	if (nbs == 0) {
+		cout << "No shapes" << endl;
 		ccLog::Print("No shapes found in the STEP file.");
 	}
 	else {
-	    for (Standard_Integer i=1; i<=nbs; i++) {
-	 		ccLog::Print("Transferring shape "+QString::number(i)+" from the STEP file.");
-	        aShape = aReader.Shape(i);
-	        // BRepTools::Dump(aShape,std::cout);
-	        string st = shapesTypes[aShape.ShapeType()];
-	        cout << "ShapeType : " << st << endl;
-	        ccLog::Print(QString("Shape type :%1").arg(st.c_str()));
-			BRepMesh_IncrementalMesh aMesh(aShape, aLinearDeflection, Standard_False, anAngularDeflection);
-	    }
-	}
-	// On commence par compter le nombre de sommets et de triangles de la
-	// tesselation pour réserver la mémoire des strctures d'accueil de CloudCompare.
-	// Exploration shapes avec lib. C++ OpenCascade :
-	// BRep_Builder builder;
-	// TopoDS_Compound comp;
-	// builder.MakeCompound(comp);
-	BRep_Tool bt;
-	NCollection_List<TopoDS_Face> l_faces;
-	int i,j;
-	int triCount=0; // Nombre de triangles de la tesselation
-	int vertCount=0;
-	TopExp_Explorer expFaces(aShape, TopAbs_FACE);
-	for (i = 0 ; expFaces.More(); expFaces.Next(), i++) {
-	    const TopoDS_Face& face = TopoDS::Face(expFaces.Current());
-	    TopLoc_Location location;
-		Poly_Triangulation facing = bt.Triangulation(face, location);
-	    gp_Trsf nodeTransformation = location;
-		vertCount += facing.NbNodes();
-		triCount += facing.NbTriangles();
-	}
-	ccLog::Print("Number of CAD faces  = "+QString::number(i));
-	ccLog::Print("Number of triangles (after tesselation) = "+QString::number(triCount));
-	ccLog::Print("Number of vertices (after tesselation)  = "+QString::number(vertCount));
+		aShape = aReader.OneShape();
+//	    for (Standard_Integer i=1; i<=nbs; i++) {
+		// ccLog::Print("Transferring shape "+QString::number(i)+" from the STEP file.");
+		// aShape = aReader.Shape(i);
+		// BRepTools::Dump(aShape,std::cout);
+		string st = shapesTypes[aShape.ShapeType()];
+		cout << "ShapeType : " << st << endl;
+		ccLog::Print(QString("Shape type :%1").arg(st.c_str()));
+		// BRepMesh_IncrementalMesh aMesh(aShape, aLinearDeflection, Standard_False, anAngularDeflection);
+		BRepMesh_IncrementalMesh aMesh(aShape, 0.001, Standard_True);
 
-	// Création des nuages de points et maillage dans CloudCompare :
-	QString name("mesh from STEP file");
-	ccPointCloud* vertices = new ccPointCloud("vertices");
-	ccMesh* mesh = new ccMesh(vertices);
-	mesh->setName(name);
-  	vertices->reserve(vertCount + 100);
-	mesh->reserve(triCount + 100);
-	
-	unsigned pointCount = 0;
-	expFaces.ReInit();
-	for (i = 1 ; expFaces.More(); expFaces.Next(), i++) {
-	    const TopoDS_Face& face = TopoDS::Face(expFaces.Current());
-	    TopLoc_Location location;
-		Poly_Triangulation facing = bt.Triangulation(face, location);
-	    gp_Trsf nodeTransformation = location;
-		TColgp_Array1OfPnt nodes = facing.Nodes();
-		Poly_Array1OfTriangle tri = facing.Triangles();
-		//cout << "i=" << i << "  tri=" << facing.NbTriangles() << endl;
-		for (j=1; j<=facing.NbTriangles();j++) {
-			//cout << "\t\tj=" << j << endl;
-			Poly_Triangle trian = tri.Value(j);
-			Standard_Integer index1, index2, index3;
-			trian.Get(index1, index2, index3);
-	       	const gp_Pnt& p1 = nodes.Value(index1).Transformed(nodeTransformation);
-	       	const gp_Pnt& p2 = nodes.Value(index2).Transformed(nodeTransformation);
-	       	const gp_Pnt& p3 = nodes.Value(index3).Transformed(nodeTransformation);
-
-	  //       BRepBuilderAPI_MakePolygon poly(BRepBuilderAPI_MakePolygon
-	  //       									(p1,p2,p3,true));
-	  //       poly.Close();
-	  //       BRepBuilderAPI_MakeFace f(poly.Wire());
-			// if (f.IsDone()) {
-	  //       	builder.Add(comp, f.Face());
-			//     l_faces.Append(f.Face());
-	  //       }
-	        // Récupération des coordonnées des sommets du triangle courant :
-	        unsigned vertIndexes[3];
-	        vertIndexes[0] = pointCount++;
-	    	CCVector3 P(p1.X(),p1.Y(),p1.Z());vertices->addPoint(P);
-	        vertIndexes[1] = pointCount++;
-	    	P.x = p2.X();P.y = p2.Y();P.z = p2.Z();vertices->addPoint(P);
-	        vertIndexes[2] = pointCount++;
-	    	P.x = p3.X();P.y = p3.Y();P.z = p3.Z();vertices->addPoint(P);
-			mesh->addTriangle(vertIndexes[0], vertIndexes[1], vertIndexes[2]);
-			//mesh->addTriangle(index1,index2,index3);
+		// On commence par compter le nombre de sommets et de triangles de la
+		// tesselation pour réserver la mémoire des strctures d'accueil de CloudCompare.
+		// Exploration shapes avec lib. C++ OpenCascade :
+		// BRep_Builder builder;
+		// TopoDS_Compound comp;
+		// builder.MakeCompound(comp);
+		
+		//BRep_Tool bt;
+		// NCollection_List<TopoDS_Face> l_faces;
+		int i,j;
+		int triCount=0; // Nombre de triangles de la tesselation
+		int vertCount=0;
+		TopExp_Explorer expFaces;
+		cout << "expFaces.Init 1..." << endl;
+		for (i=0,expFaces.Init(aShape, TopAbs_FACE); expFaces.More(); i++,expFaces.Next()) {
+		//for (i = 0 ; expFaces.More(); expFaces.Next(), i++) {
+			const TopoDS_Face& face = TopoDS::Face(expFaces.Current());
+			TopLoc_Location location;
+			cout << i << " : avant bt.Triangulation..." << endl;
+			
+			// builder.Add(comp, face());
+			// l_faces.Append(face());
+			Poly_Triangulation facing = BRep_Tool::Triangulation(face, location);
+			// Handle(Poly_Triangulation) facing = BRep_Tool::Triangulation(face, location);
+			// if (facing.IsNull())
+			// {
+			// 	BRepMesh_FastDiscret myMesh(face);
+			// 	facing = BRep_Tool::Triangulation(face, location);
+			// }
+			// if (facing.IsNull())
+			// 	continue;
+			cout << i << " : après bt.Triangulation..." << endl;
+			gp_Trsf nodeTransformation = location;
+			vertCount += facing.NbNodes();
+			triCount += facing.NbTriangles();
 		}
-	}
+		ccLog::Print("Number of CAD faces  = "+QString::number(i));
+		ccLog::Print("Number of triangles (after tesselation) = "+QString::number(triCount));
+		ccLog::Print("Number of vertices (after tesselation)  = "+QString::number(vertCount));
+
+		// Création des nuages de points et maillage dans CloudCompare :
+		QString name("mesh from STEP file");
+		ccPointCloud* vertices = new ccPointCloud("vertices");
+		ccMesh* mesh = new ccMesh(vertices);
+		mesh->setName(name);
+		vertices->reserve(vertCount + 100);
+		mesh->reserve(triCount + 100);
+		
+		unsigned pointCount = 0;
+		expFaces.ReInit();
+		cout << "expFaces.Init 2..." << endl;
+		for (i=0,expFaces.Init(aShape, TopAbs_FACE); expFaces.More(); i++,expFaces.Next()) {
+		//for (i = 1 ; expFaces.More(); expFaces.Next(), i++) {
+			const TopoDS_Face& face = TopoDS::Face(expFaces.Current());
+			TopLoc_Location location;
+			Poly_Triangulation facing = BRep_Tool::Triangulation(face, location);
+
+			gp_Trsf nodeTransformation = location;
+			TColgp_Array1OfPnt nodes = facing.Nodes();
+			Poly_Array1OfTriangle tri = facing.Triangles();
+			//cout << "i=" << i << "  tri=" << facing.NbTriangles() << endl;
+			for (j=1; j<=facing.NbTriangles();j++) {
+				//cout << "\t\tj=" << j << endl;
+				Poly_Triangle trian = tri.Value(j);
+				Standard_Integer index1, index2, index3;
+				trian.Get(index1, index2, index3);
+				const gp_Pnt& p1 = nodes.Value(index1).Transformed(nodeTransformation);
+				const gp_Pnt& p2 = nodes.Value(index2).Transformed(nodeTransformation);
+				const gp_Pnt& p3 = nodes.Value(index3).Transformed(nodeTransformation);
+
+		//       BRepBuilderAPI_MakePolygon poly(BRepBuilderAPI_MakePolygon
+		//       									(p1,p2,p3,true));
+		//       poly.Close();
+		//       BRepBuilderAPI_MakeFace f(poly.Wire());
+				// if (f.IsDone()) {
+		//       	builder.Add(comp, f.Face());
+				//     l_faces.Append(f.Face());
+		//       }
+				// Récupération des coordonnées des sommets du triangle courant :
+				unsigned vertIndexes[3];
+				vertIndexes[0] = pointCount++;
+				CCVector3 P(p1.X(),p1.Y(),p1.Z());vertices->addPoint(P);
+				vertIndexes[1] = pointCount++;
+				P.x = p2.X();P.y = p2.Y();P.z = p2.Z();vertices->addPoint(P);
+				vertIndexes[2] = pointCount++;
+				P.x = p3.X();P.y = p3.Y();P.z = p3.Z();vertices->addPoint(P);
+				mesh->addTriangle(vertIndexes[0], vertIndexes[1], vertIndexes[2]);
+				//mesh->addTriangle(index1,index2,index3);
+			}
+		}
 //===============================================================================
 //do some cleaning
-	// {
-	// 	vertices->shrinkToFit();
-	// 	mesh->shrinkToFit();
-	// 	NormsIndexesTableType* normals = mesh->getTriNormsTable();
-	// 	if (normals)
-	// 	{
-	// 		normals->shrink_to_fit();
-	// 	}
-	// }
-	// //remove duplicated vertices
-	// {
-	// 	try
-	// 	{
-	// 		std::vector<int> equivalentIndexes;
-	// 		const int razValue = -1;
-	// 		equivalentIndexes.resize(vertCount, razValue);
-			
-	// 		QScopedPointer<ccProgressDialog> pDlg(nullptr);
-	// 		if (parameters.parentWidget)
-	// 		{
-	// 			pDlg.reset(new ccProgressDialog(true, parameters.parentWidget));
-	// 		}
-	// 		ccOctree::Shared octree = ccOctree::Shared(new ccOctree(vertices));
-	// 		if (!octree->build(pDlg.data()))
-	// 		{
-	// 			octree.clear();
-	// 		}
-	// 		if (octree)
-	// 		{
-	// 			void* additionalParameters[] = { static_cast<void*>(&equivalentIndexes) };
-	// 			unsigned result = octree->executeFunctionForAllCellsAtLevel(10,
-	// 																		TagDuplicatedVertices,
-	// 																		additionalParameters,
-	// 																		false,
-	// 																		pDlg.data(),
-	// 																		"Tag duplicated vertices");
-
-	// 			octree.clear();
-
-	// 			if (result != 0)
-	// 			{
-	// 				unsigned remainingCount = 0;
-	// 				for (unsigned i = 0; i < vertCount; ++i)
-	// 				{
-	// 					int eqIndex = equivalentIndexes[i];
-	// 					assert(eqIndex >= 0);
-	// 					if (eqIndex == static_cast<int>(i)) //root point
-	// 					{
-	// 						int newIndex = static_cast<int>(vertCount + remainingCount); //We replace the root index by its 'new' index (+ vertCount, to differentiate it later)
-	// 						equivalentIndexes[i] = newIndex;
-	// 						++remainingCount;
-	// 					}
-	// 				}
-
-	// 				ccPointCloud* newVertices = new ccPointCloud("vertices");
-	// 				if (newVertices->reserve(remainingCount))
-	// 				{
-	// 					//copy root points in a new cloud
-	// 					{
-	// 						for (unsigned i = 0; i < vertCount; ++i)
-	// 						{
-	// 							int eqIndex = equivalentIndexes[i];
-	// 							if (eqIndex >= static_cast<int>(vertCount)) //root point
-	// 								newVertices->addPoint(*vertices->getPoint(i));
-	// 							else
-	// 								equivalentIndexes[i] = equivalentIndexes[eqIndex]; //and update the other indexes
-	// 						}
-	// 					}
-
-	// 					//update face indexes
-	// 					{
-	// 						unsigned newFaceCount = 0;
-	// 						for (unsigned i = 0; i < faceCount; ++i)
-	// 						{
-	// 							CCLib::VerticesIndexes* tri = mesh->getTriangleVertIndexes(i);
-	// 							tri->i1 = static_cast<unsigned>(equivalentIndexes[tri->i1]) - vertCount;
-	// 							tri->i2 = static_cast<unsigned>(equivalentIndexes[tri->i2]) - vertCount;
-	// 							tri->i3 = static_cast<unsigned>(equivalentIndexes[tri->i3]) - vertCount;
-
-	// 							//very small triangles (or flat ones) may be implicitly removed by vertex fusion!
-	// 							if (tri->i1 != tri->i2 && tri->i1 != tri->i3 && tri->i2 != tri->i3)
-	// 							{
-	// 								if (newFaceCount != i)
-	// 									mesh->swapTriangles(i, newFaceCount);
-	// 								++newFaceCount;
-	// 							}
-	// 						}
-
-	// 						if (newFaceCount == 0)
-	// 						{
-	// 							ccLog::Warning("[STL] After vertex fusion, all triangles would collapse! We'll keep the non-fused version...");
-	// 							delete newVertices;
-	// 							newVertices = nullptr;
-	// 						}
-	// 						else
-	// 						{
-	// 							mesh->resize(newFaceCount);
-	// 						}
-	// 					}
-
-	// 					if (newVertices)
-	// 					{
-	// 						mesh->setAssociatedCloud(newVertices);
-	// 						delete vertices;
-	// 						vertices = newVertices;
-	// 						vertCount = vertices->size();
-	// 						ccLog::Print("[STL] Remaining vertices after auto-removal of duplicate ones: %i", vertCount);
-	// 						ccLog::Print("[STL] Remaining faces after auto-removal of duplicate ones: %i", mesh->size());
-	// 					}
-	// 				}
-	// 				else
-	// 				{
-	// 					ccLog::Warning("[STL] Not enough memory: couldn't removed duplicated vertices!");
-	// 				}
-	// 			}
-	// 			else
-	// 			{
-	// 				ccLog::Warning("[STL] Duplicated vertices removal algorithm failed?!");
-	// 			}
-	// 		}
-	// 		else
-	// 		{
-	// 			ccLog::Warning("[STL] Not enough memory: couldn't removed duplicated vertices!");
-	// 		}
-	// 	}
-	// 	catch (const std::bad_alloc&)
-	// 	{
-	// 		ccLog::Warning("[STL] Not enough memory: couldn't removed duplicated vertices!");
-	// 	}
-	// }
 //===============================================================================
 	// ccLog::Print("Nombre de faces = "+QString::number(i));
 
-	vertices->setEnabled(true);
-	vertices->setLocked(false); //DGM: no need to lock it as it is only used by one mesh!
-	mesh->addChild(vertices);
-	container.addChild(mesh);
+		vertices->setEnabled(true);
+		vertices->setLocked(false); //DGM: no need to lock it as it is only used by one mesh!
+		mesh->addChild(vertices);
+		container.addChild(mesh);
 
-	// BRepBuilderAPI_Sewing sewing;
-	// for(const TopoDS_Shape& face : l_faces) {
-	//     sewing.Add(face);
-	// }
-	// sewing.Perform();
-	// TopoDS_Shell sewed_shape = (TopoDS_Shell&)sewing.SewedShape();
+		// BRepBuilderAPI_Sewing sewing;
+		// for(const TopoDS_Shape& face : l_faces) {
+		//     sewing.Add(face);
+		// }
+		// sewing.Perform();
+		// TopoDS_Shell sewed_shape = (TopoDS_Shell&)sewing.SewedShape();
 
-	// QString f = path + "/output/export_"+basename+".brep";
-	// s = f.toStdString();
-	// Standard_CString export_filename=(Standard_CString)s.c_str();
-	// if (BRepTools::Write(sewed_shape, export_filename))
-	// 	ccLog::Print("File 'export_"+basename+".brep'"+" exported successfully");
+		// QString f = path + "/output/export_"+basename+".brep";
+		// s = f.toStdString();
+		// Standard_CString export_filename=(Standard_CString)s.c_str();
+		// if (BRepTools::Write(sewed_shape, export_filename))
+		// 	ccLog::Print("File 'export_"+basename+".brep'"+" exported successfully");
+		}
 	}
 }
