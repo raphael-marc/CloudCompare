@@ -33,8 +33,7 @@ public:
 	CC_FILE_ERROR loadFile( const QString &fullFilename, ccHObject &container, LoadParameters &parameters ) override;
 
 	CC_FILE_ERROR STEPImportFile(ccHObject &container, const QString &path, 
-		const QString &file, float linearDeflection, float angularDeflection,
-		LoadParameters &parameters);
+		const QString &file, float linearDeflection, LoadParameters &parameters);
 
 };
 

@@ -1,6 +1,6 @@
 //##########################################################################
 //#                                                                        #
-//#                       CLOUDCOMPARE PLUGIN: qRDBIO                      #
+//#                       CLOUDCOMPARE PLUGIN: qSTEPCADImport              #
 //#                                                                        #
 //#  This program is free software; you can redistribute it and/or modify  #
 //#  it under the terms of the GNU General Public License as published by  #
@@ -11,7 +11,7 @@
 //#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         #
 //#  GNU General Public License for more details.                          #
 //#                                                                        #
-//#          COPYRIGHT: RIEGL Laser Measurement Systems GmbH               #
+//#          COPYRIGHT: EDF R&D                                            #
 //#                                                                        #
 //##########################################################################
 
@@ -26,7 +26,6 @@
 
 //CClib
 #include <ScalarField.h>
-//#include <STLFilter.h>
 
 //qCC_db
 #include <ccPlane.h>
@@ -115,16 +114,18 @@ CC_FILE_ERROR STEPFilter::loadFile( const QString &fullFilename, ccHObject &cont
 		return CC_FERR_UNKNOWN_FILE;
 	QString path = fi.path();
 	QString fileNameOnly = fi.fileName();
-	// ccLog::Print(QString("path = '%1'").arg(path));
-	// ccLog::Print(QString("fileNameOnly = '%1'").arg(fileNameOnly));
-
-	STEPImportFile(container, path, fileNameOnly, 1.0, 1.0, parameters);
-	return CC_FERR_NO_ERROR; //int STEPImportFile(int argc, char *argv[])
+	float linearDeflection = 0.001; 
+	// Note for Daniel : "linearDeflection" should be get from the GUI (user input).
+	// It should belong to the interval [1e-2,1e-6]. The smaller is this value, the smaller are the triangles.
+	// In some cases, if this linear deflection is too big, the tesselation may crash
+	// on some faces (precisely the instruction "BRep_Tool::Triangulation(face, location)").
+	// But I don't know how to anticipate this.
+	STEPImportFile(container, path, fileNameOnly, linearDeflection, parameters);
+	return CC_FERR_NO_ERROR;
 }
 //================================================================================
 CC_FILE_ERROR STEPFilter::STEPImportFile(ccHObject &container, const QString &path, 
-	const QString &file, float linearDeflection, float angularDeflection,
-	LoadParameters &parameters)
+	const QString &file, float linearDeflection, LoadParameters &parameters)
 //================================================================================
 {
 QString fullFileName = path + "/" + file;
@@ -133,25 +134,22 @@ Standard_CString filename=(Standard_CString)s.c_str();
 QFileInfo fi(fullFileName);
 QString basename = fi.baseName();
 
-const Standard_Real aLinearDeflection = linearDeflection;
-const Standard_Real anAngularDeflection = angularDeflection;
-
 STEPControl_Reader aReader;
 IFSelect_ReturnStatus aStatus = aReader.ReadFile(filename);
 int ic = Interface_Static::IVal("xstep.cascade.unit");
 string unit = Interface_Static::CVal("xstep.cascade.unit");
 Interface_Static::SetCVal("xstep.cascade.unit", "M");
 unit = Interface_Static::CVal("xstep.cascade.unit");
-// // Root transfers
+// Root transfers :
 if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 	{
 	bool isFailsonly = false;
 	aReader.PrintCheckLoad(isFailsonly, IFSelect_PrintCount::IFSelect_ItemsByEntity);
 	aReader.PrintCheckTransfer(isFailsonly, IFSelect_PrintCount::IFSelect_ItemsByEntity);
-	// Collecting resulting entities
+	// Collecting resulting entities of the STEP file :
 	Standard_Integer nbr = aReader.NbRootsForTransfer();
     for (Standard_Integer n = 1; n<= nbr; n++) {
-        cout << "STEP: Transferring Root " << n << endl;
+        ccLog::Print(QString("STEP: Transferring Root ")+QString::number(n));
 		aReader.TransferRoot(n);
     }
   	aReader.TransferRoots();
@@ -159,24 +157,22 @@ if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 	ccLog::Print("Number fo shapes = "+QString::number(nbs));
 	TopoDS_Shape aShape;
 	if (nbs == 0) {
-		cout << "No shapes" << endl;
 		ccLog::Print("No shapes found in the STEP file.");
 	}
 	else {
 		aShape = aReader.OneShape();
 		string st = shapesTypes[aShape.ShapeType()];
-		cout << "ShapeType : " << st << endl;
 		ccLog::Print(QString("Shape type :%1").arg(st.c_str()));
-		BRepMesh_IncrementalMesh aMesh(aShape, 0.001, Standard_True);
+		BRepMesh_IncrementalMesh aMesh(aShape, linearDeflection, Standard_True);
 
-		// On commence par compter le nombre de sommets et de triangles de la
-		// tesselation pour réserver la mémoire des strctures d'accueil de CloudCompare.
-		// Exploration shapes avec lib. C++ OpenCascade :
-		int i,j;
-		int triCount=0; // Nombre de triangles de la tesselation
+		// 1st loop where we just count the number of vertices and of triangles
+		// in order to reserve the memory for CC structures.
+		// Notice that the nodes are duplicated during CAD tesslation : if a node is
+		// belonging to N triangles, it's duplicated N times.
+		int i = 0;
+		int triCount=0; // Number of triangles of the tesselated CAD shape imported
 		int vertCount=0;
 		TopExp_Explorer expFaces;
-		cout << "expFaces.Init 1..." << endl;
 		for (i=0,expFaces.Init(aShape, TopAbs_FACE); expFaces.More(); i++,expFaces.Next()) {
 			const TopoDS_Face& face = TopoDS::Face(expFaces.Current());
 			TopLoc_Location location;
@@ -189,7 +185,7 @@ if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 		ccLog::Print("Number of triangles (after tesselation) = "+QString::number(triCount));
 		ccLog::Print("Number of vertices (after tesselation)  = "+QString::number(vertCount));
 
-		// Création des nuages de points et maillage dans CloudCompare :
+		// Creation of the point cloud (vertices) and of the mesh in CC :
 		QString name("mesh from STEP file");
 		ccPointCloud* vertices = new ccPointCloud("vertices");
 		ccMesh* mesh = new ccMesh(vertices);
@@ -197,9 +193,9 @@ if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 		vertices->reserve(vertCount + 100);
 		mesh->reserve(triCount + 100);
 		
+		// 2nd loop where we create the vertices and triangles in the CC structures :
 		unsigned pointCount = 0;
 		expFaces.ReInit();
-		cout << "expFaces.Init 2..." << endl;
 		for (i=0,expFaces.Init(aShape, TopAbs_FACE); expFaces.More(); i++,expFaces.Next()) {
 			const TopoDS_Face& face = TopoDS::Face(expFaces.Current());
 			TopLoc_Location location;
@@ -208,6 +204,7 @@ if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 			gp_Trsf nodeTransformation = location;
 			TColgp_Array1OfPnt nodes = facing.Nodes();
 			Poly_Array1OfTriangle tri = facing.Triangles();
+			int j = 0;
 			for (j=1; j<=facing.NbTriangles();j++) {
 				Poly_Triangle trian = tri.Value(j);
 				Standard_Integer index1, index2, index3;
@@ -227,7 +224,7 @@ if (aStatus == IFSelect_ReturnStatus::IFSelect_RetDone)
 			}
 		}
 //===============================================================================
-// ==> DGM : do some cleaning, fuse the vertices that are duplicated
+// Note for Daniel : the vertices that are duplicated should be fused.
 //===============================================================================
 		vertices->setEnabled(true);
 		vertices->setLocked(false);
